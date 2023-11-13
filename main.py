@@ -12,18 +12,15 @@ import pyodbc
 # Azure SQL
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
-username = '......'
-password = '......'
+username = '.....'
+password = '.....'
 driver = '{ODBC Driver 18 for SQL Server}'
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
 def create_connection():
     return pyodbc.connect(connection_string)
 
-try:
-    connection = create_connection()
-except:
-    raise ConnectionError
+connection = create_connection()
 
 # to get a string like this run:
 # openssl rand -hex 32
@@ -165,7 +162,7 @@ async def register_user(data : RegisterData):
 
             # Hash the password before saving it to the database
             hashed_password = pwd_context.hash(data.password)
-            cursor.execute("SELECT COUNT(id) FROM users_login")
+            cursor.execute("SELECT id FROM users_login ORDER BY id DESC")
             count = int(cursor.fetchone()[0])
 
             # Insert the user data into the users_login table
@@ -174,7 +171,7 @@ async def register_user(data : RegisterData):
                 VALUES (?, ?, ?, 0)
             """, count+1, data.username, hashed_password)
             
-            cursor.execute("SELECT COUNT(id) FROM users")
+            cursor.execute("SELECT id FROM users ORDER BY id DESC")
             countUsers = int(cursor.fetchone()[0])
 
             cursor.execute("""
@@ -392,7 +389,7 @@ async def do_consult(
                     "consult_notes": notes
                 }
                 
-            cursor.execute("SELECT COUNT(id) FROM consultations")
+            cursor.execute("SELECT id FROM consultations ORDER BY id DESC")
             count = int(cursor.fetchone()[0])
             # Insert consultation data into the database
             cursor.execute("INSERT INTO consultations (id, user_id, sneaker_id, sneaker_name, consult_notes) "
@@ -447,7 +444,6 @@ async def add_sneakers(
             existing_sneaker = cursor.fetchone()
             
             
-
             if existing_sneaker:
                 raise HTTPException(
                     status_code=400, detail=f'Sneaker with ID {sneakers.id} already exists.'
@@ -459,7 +455,7 @@ async def add_sneakers(
             
             for detail in sneakers.details:
             # Insert the sneaker details into the database
-                cursor.execute("SELECT COUNT(id) FROM sneaker_details")
+                cursor.execute("SELECT id FROM sneaker_details ORDER BY id DESC")
                 count = int(cursor.fetchone()[0])
                 cursor.execute("INSERT INTO sneaker_details (id, sneaker_id, sneakersize, stock, price) VALUES (?, ?, ?, ?, ?)",
                             (count+1, sneakers.id, detail.size, detail.stock, detail.price))
@@ -513,7 +509,8 @@ async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
             username = existing_user[0]
 
             # Delete the sneaker from the database
-            cursor.execute("DELETE FROM users WHERE id=?", (user_id,))
+            cursor.execute("DELETE FROM consultations WHERE user_id=?", (user_id))
+            cursor.execute("DELETE FROM users WHERE id=?", (user_id))
             cursor.execute("DELETE FROM users_login WHERE username=?", (username))
 
             connection.commit()
