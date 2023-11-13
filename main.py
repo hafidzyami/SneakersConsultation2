@@ -12,10 +12,10 @@ import pyodbc
 # Azure SQL
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
-username = '.......'
-password = '.......'
+username = '......'
+password = '......'
 driver = '{ODBC Driver 18 for SQL Server}'
-connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;;Login Timeout=60;'
+connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
 def create_connection():
     return pyodbc.connect(connection_string)
@@ -154,7 +154,7 @@ async def get_current_basic_user(
         raise HTTPException(status_code=400, detail="This Method is Accessible only for Basic User, not Admin!")
     return current_user
 
-@app.post("/register")
+@app.post("/register", tags=['Register'])
 async def register_user(data : RegisterData):
     
     try:
@@ -191,7 +191,7 @@ async def register_user(data : RegisterData):
         print('done')
     
 
-@app.post("/token", response_model=Token)
+@app.post("/token", response_model=Token, tags = ['Generate Token'])
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
@@ -209,7 +209,7 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.get("/details/me")
+@app.get("/details/me", tags=['Auth Users', 'Admin'])
 async def read_my_details(
     current_user: Annotated[UserLogin, Depends(get_current_user)]
 ):
@@ -235,7 +235,7 @@ async def read_my_details(
         # connection.close()
         print('done')
     
-@app.put("/update/me")
+@app.put("/update/me", tags=['Auth Users'])
 async def update_my_data(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)],
     data : UserData
@@ -251,7 +251,7 @@ async def update_my_data(
         # connection.close()
         print('done')
 
-@app.get('/sneakers')
+@app.get('/sneakers', tags=['All Can Access'])
 async def read_all_sneakers():
     
     try:
@@ -303,7 +303,7 @@ async def read_all_sneakers():
         # connection.close()
         print('done')
         
-@app.get('/sneakers/{sneaker_id}')
+@app.get('/sneakers/{sneaker_id}', tags=['All Can Access'])
 async def read_sneaker(sneaker_id: int):
     
     try:
@@ -336,7 +336,7 @@ async def read_sneaker(sneaker_id: int):
         print('done')
         
 
-@app.post('/doconsult/me')
+@app.post('/doconsult/me', tags=['Auth Users'])
 async def do_consult(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)]
 ):
@@ -405,7 +405,7 @@ async def do_consult(
         # connection.close()
         print('done')
         
-@app.get('/consult/me')
+@app.get('/consult/me', tags=['Auth Users'])
 async def read_my_consult(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)]
 ):
@@ -435,7 +435,7 @@ async def read_my_consult(
         print('done')
         # connection.close()
         
-@app.post('/sneakers')
+@app.post('/sneakers', tags=['Admin'])
 async def add_sneakers(
     current_user: Annotated[UserLogin, Depends(get_current_admin)],
     sneakers: Sneakers):
@@ -470,7 +470,7 @@ async def add_sneakers(
     finally:
         connection.close()   
 
-@app.delete('/sneakers/{sneaker_id}')
+@app.delete('/sneakers/{sneaker_id}', tags=['Admin'])
 async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_admin)]
     ,sneaker_id: int):
     try:
@@ -496,8 +496,36 @@ async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
         # connection.close()
         print('done')
         
+@app.delete('/user/{user_id}', tags=['Admin'])
+async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_admin)]
+    ,user_id: int):
+    try:
+        with connection.cursor() as cursor:
+            # Check if the sneaker ID exists
+            cursor.execute("SELECT username FROM users WHERE id=?", (user_id,))
+            existing_user = cursor.fetchone()
+
+            if not existing_user:
+                raise HTTPException(
+                    status_code=404, detail=f'User with ID {user_id} not found.'
+                )
+            
+            username = existing_user[0]
+
+            # Delete the sneaker from the database
+            cursor.execute("DELETE FROM users WHERE id=?", (user_id,))
+            cursor.execute("DELETE FROM users_login WHERE username=?", (username))
+
+            connection.commit()
+
+            return f"User with username {username} deleted"
+
+    finally:
+        # connection.close()
+        print('done')
         
-@app.get('/user')
+        
+@app.get('/user', tags=['Admin'])
 async def read_all_users(current_user: Annotated[UserLogin, Depends(get_current_admin)]):
     try:
         with connection.cursor() as cursor:
@@ -518,7 +546,7 @@ async def read_all_users(current_user: Annotated[UserLogin, Depends(get_current_
         # connection.close()
         print('done')
         
-@app.put('/sneakers')
+@app.put('/sneakers', tags=['Admin'])
 async def update_sneaker(current_user: Annotated[UserLogin, Depends(get_current_admin)],
     sneaker: Sneakers):
     try:
@@ -554,7 +582,7 @@ async def update_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
         # connection.close()
         print('done')
         
-@app.get('/consult')
+@app.get('/consult', tags=['Admin'])
 async def read_all_consultations(current_user: Annotated[UserLogin, Depends(get_current_admin)]):
     try:
         with connection.cursor() as cursor:
