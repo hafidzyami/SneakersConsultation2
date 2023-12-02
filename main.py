@@ -6,14 +6,16 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from typing import List
+import requests
 import pyodbc
+from datetime import datetime
 
 
 # Azure SQL
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
-username = '.....'
-password = '.....'
+username = 'azureuser'
+password = '......'
 driver = '{ODBC Driver 18 for SQL Server}'
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
@@ -26,7 +28,7 @@ connection = create_connection()
 # openssl rand -hex 32
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 1000000
 
 class Token(BaseModel):
     access_token: str
@@ -89,7 +91,7 @@ def get_user(username: str):
             user_dict = {
                 "username": row.username,
                 "hashed_password": row.hashed_password,
-                "is_admin": row.is_admin
+                "is_admin": row.is_admin,
             }
             return UserInDB(**user_dict)
         return None
@@ -116,6 +118,30 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def getIntegrasiToken(username, password):
+    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/authentications/login'
+    headers = {
+        'accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    data = {
+        'grant_type': '',
+        'username': username,
+        'password': password,
+        'scope': '',
+        'client_id': '',
+        'client_secret': ''
+    }
+
+    response = requests.post(url, headers=headers, data=data)
+
+    if response.status_code == 200:
+        result = response.json()
+        access_token = result.get('access_token')
+        return access_token
+    else:
+        return{'Error:', response.status_code, response.text}
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
@@ -163,26 +189,50 @@ async def register_user(data : RegisterData):
             # Hash the password before saving it to the database
             hashed_password = pwd_context.hash(data.password)
             cursor.execute("SELECT id FROM users_login ORDER BY id DESC")
-            count = int(cursor.fetchone()[0])
-
-            # Insert the user data into the users_login table
-            cursor.execute("""
-                INSERT INTO users_login (id, username, hashed_password, is_admin)
-                VALUES (?, ?, ?, 0)
-            """, count+1, data.username, hashed_password)
+            count = int(cursor.fetchone()[0])     
             
-            cursor.execute("SELECT id FROM users ORDER BY id DESC")
-            countUsers = int(cursor.fetchone()[0])
+            # Register to other microservice
+            url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
+            headers = {
+                'accept': 'application/json'
+            }
+            params = {
+                'firstname': data.username,
+                'lastname': data.username,
+                'phonenumber': '0888888',
+                'address': 'Jl Cikutra No 20',
+                'email': data.username + "@gmail.com",
+                'password': data.password,
+                'username': data.username,
+                'role': 'Admin'
+            }
 
-            cursor.execute("""
-                INSERT INTO users (id, age, footsize, category, budget, username)
-                VALUES (?, null, null, null, null, ?)
-            """, countUsers+1, data.username)         
+            response = requests.post(url, headers=headers, params=params)
             
+            # Jika berhasil register
+            if response.status_code == 200:
+                # Insert the user data into the users_login table
+                cursor.execute("""
+                    INSERT INTO users_login (id, username, hashed_password, is_admin, integrasiToken)
+                    VALUES (?, ?, ?, 0, ?)
+                """, count+1, data.username, hashed_password, getIntegrasiToken(data.username, data.password))
+                
+                cursor.execute("SELECT id FROM users ORDER BY id DESC")
+                result = cursor.fetchone()
+                if(result is not None):
+                    countUsers = int(result[0])
+                else:
+                    countUsers = 0
 
-            # Commit the transaction
-            connection.commit()
-            return {"message": "User registered successfully"}
+                cursor.execute("""
+                    INSERT INTO users (id, age, footsize, category, budget, username)
+                    VALUES (?, null, null, null, null, ?)
+                """, countUsers+1, data.username)       
+                connection.commit()
+                return {"message": "User registered successfully"}
+            else:
+                return{'Error:', response.status_code, response.text}
+
     finally:
         # connection.close()
         print('done')
@@ -206,7 +256,7 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.get("/details/me", tags=['Auth Users', 'Admin'])
+@app.get("/details/me", tags=['Auth Customers', 'Admin'])
 async def read_my_details(
     current_user: Annotated[UserLogin, Depends(get_current_user)]
 ):
@@ -232,12 +282,11 @@ async def read_my_details(
         # connection.close()
         print('done')
     
-@app.put("/update/me", tags=['Auth Users'])
+@app.put("/update/me", tags=['Auth Customers'])
 async def update_my_data(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)],
     data : UserData
-):
-    
+):  
     try:
         with connection.cursor() as cursor:
             cursor.execute("UPDATE users SET age=?, footsize=?, category=?, budget=? WHERE username=?",
@@ -333,7 +382,7 @@ async def read_sneaker(sneaker_id: int):
         print('done')
         
 
-@app.post('/doconsult/me', tags=['Auth Users'])
+@app.post('/doconsult/me', tags=['Auth Customers'])
 async def do_consult(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)]
 ):
@@ -370,7 +419,8 @@ async def do_consult(
                     "username" : current_user.username,
                     "sneaker_id": None,
                     "sneaker_name": None,
-                    "consult_notes": "Tidak ada sneakers yang cocok dari segi size, category, ataupun budget Anda"
+                    "consult_notes": "Tidak ada sneakers yang cocok dari segi size, category, ataupun budget Anda",
+                    "timestampz" : datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             elif count == 1:
                 consult_data = {
@@ -378,7 +428,8 @@ async def do_consult(
                     "username" : current_user.username,
                     "sneaker_id": sneakers_id,
                     "sneaker_name": sneakers_name,
-                    "consult_notes": "Tidak ada sneakers lain yang menjadi alternatif"
+                    "consult_notes": "Tidak ada sneakers lain yang menjadi alternatif",
+                    "timestampz" : datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             else:
                 consult_data = {
@@ -386,23 +437,28 @@ async def do_consult(
                     "username" : current_user.username,
                     "sneaker_id": sneakers_id,
                     "sneaker_name": sneakers_name,
-                    "consult_notes": notes
+                    "consult_notes": notes,
+                    "timestampz" : datetime.timestamp(datetime.now())
                 }
                 
             cursor.execute("SELECT id FROM consultations ORDER BY id DESC")
-            count = int(cursor.fetchone()[0])
+            result = cursor.fetchone()
+            if(result is not None):
+                count = int(result[0])
+            else:
+                count = 0
             # Insert consultation data into the database
-            cursor.execute("INSERT INTO consultations (id, user_id, sneaker_id, sneaker_name, consult_notes) "
-                           "VALUES (?, ?, ?, ?, ?)",
+            cursor.execute("INSERT INTO consultations (id, user_id, sneaker_id, sneaker_name, consult_notes, timestampz) "
+                           "VALUES (?, ?, ?, ?, ?, ?)",
                            (count+1, consult_data['user_id'], consult_data['sneaker_id'],
-                            consult_data['sneaker_name'], consult_data['consult_notes']))
+                            consult_data['sneaker_name'], consult_data['consult_notes'], consult_data['timestampz']))
             connection.commit()
             return consult_data
     finally:
         # connection.close()
         print('done')
         
-@app.get('/consult/me', tags=['Auth Users'])
+@app.get('/consult/me', tags=['Auth Customers'])
 async def read_my_consult(
     current_user: Annotated[UserLogin, Depends(get_current_basic_user)]
 ):
@@ -418,7 +474,9 @@ async def read_my_consult(
                 'username' : current_user.username,
                 'sneakers_id': item[2],
                 'sneakers_name': item[3],
-                'consult_notes': item[4]
+                'consult_notes': item[4],
+                'shoewizards_consult' : item[5],
+                'timestamp' : item[6]
             } for item in data]
 
         if not consult_list:
@@ -493,7 +551,7 @@ async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
         print('done')
         
 @app.delete('/user/{user_id}', tags=['Admin'])
-async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_admin)]
+async def delete_user(current_user: Annotated[UserLogin, Depends(get_current_admin)]
     ,user_id: int):
     try:
         with connection.cursor() as cursor:
@@ -522,7 +580,7 @@ async def delete_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
         print('done')
         
         
-@app.get('/user', tags=['Admin'])
+@app.get('/users', tags=['Admin'])
 async def read_all_users(current_user: Annotated[UserLogin, Depends(get_current_admin)]):
     try:
         with connection.cursor() as cursor:
@@ -579,7 +637,7 @@ async def update_sneaker(current_user: Annotated[UserLogin, Depends(get_current_
         # connection.close()
         print('done')
         
-@app.get('/consult', tags=['Admin'])
+@app.get('/consults', tags=['Admin'])
 async def read_all_consultations(current_user: Annotated[UserLogin, Depends(get_current_admin)]):
     try:
         with connection.cursor() as cursor:
@@ -591,7 +649,9 @@ async def read_all_consultations(current_user: Annotated[UserLogin, Depends(get_
                 'user_id': item[1],
                 'sneakers_id': item[2],
                 'sneakers_name': item[3],
-                'consult_notes': item[4]
+                'consult_notes': item[4],
+                'shoewizards_consult' : item[5],
+                'timestamp' : item[6]
             } for item in data]
 
             return consultations
@@ -599,3 +659,139 @@ async def read_all_consultations(current_user: Annotated[UserLogin, Depends(get_
     finally:
         # connection.close()
         print('done')
+    
+    
+
+@app.get('/products', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
+async def read_all_products():
+    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/products/products'
+    headers = {
+        'accept': 'application/json'
+    }
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        result = response.json()
+        return result
+    else:
+        return{'Error:', response.status_code, response.text}
+
+
+@app.post('/doexpertconsult/me', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
+async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_current_basic_user)]):
+    with connection.cursor() as cursor:
+            # Check if the sneaker ID exists
+            cursor.execute("SELECT integrasiToken FROM users_login WHERE username=?", (current_user.username,))
+            integrasiToken = cursor.fetchone()[0]
+    
+    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
+    headers = {
+        'accept': 'application/json',
+        'Authorization': 'Bearer ' + integrasiToken
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        result = response.json()
+        idUser = next((item[0] for item in result if item[7] == current_user.username), None)
+        
+        with connection.cursor() as cursor:
+            # Check if the sneaker ID exists
+            cursor.execute("SELECT * FROM users WHERE username=?", (current_user.username,))
+            user = cursor.fetchone()
+            
+            cursor.execute("SELECT TOP 1 * FROM consultations WHERE user_id = ? ORDER BY id DESC", (user.id,))
+            result = cursor.fetchone()
+            if(result is not None and result.sneaker_id is not None):
+                sneakersID = result.sneaker_id
+            else:
+                return{'Hasil konsultasi terakhir menyatakan tidak ada sneakers yang cocok, sehingga tidak ada produk Shoe Wizards yang cocok juga! Silahkan lakukan konsultasi terlebih dahulu pada POST/doconsult/me'}     
+            url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
+            headers = {
+                'accept': 'application/json',
+                'Authorization': 'Bearer ' + integrasiToken
+            }
+            params = {
+                'userid': idUser,
+                'shoeid': sneakersID
+            }
+
+            response = requests.post(url, headers=headers, params=params)
+
+            if response.status_code == 200:
+                result1 = response.json()
+                url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
+                headers = {
+                    'accept': 'application/json'
+                }
+                params = {
+                    'userid': idUser,
+                    'shoeid': sneakersID
+                }
+
+                response = requests.get(url, headers=headers, params=params)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    cursor.execute("UPDATE consultations SET shoewizards=? WHERE user_id=? AND sneaker_id=?",
+                            (result, user.id, sneakersID))
+                    connection.commit()
+                    return result1 + " " + result
+                else:
+                    return{'Error:', response.status_code, response.text}
+            else:
+                return{'Error:', response.status_code, response.text}        
+    else:
+        return{'Error:', response.status_code, response.text}
+    
+# @app.get('/expertconsult/me', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
+# async def get_shoewizards_consult(current_user: Annotated[UserLogin, Depends(get_current_basic_user)]):
+#     with connection.cursor() as cursor:
+#             # Check if the sneaker ID exists
+#             cursor.execute("SELECT integrasiToken FROM users_login WHERE username=?", (current_user.username,))
+#             integrasiToken = cursor.fetchone()[0]
+            
+#     url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
+#     headers = {
+#         'accept': 'application/json',
+#         'Authorization': 'Bearer ' + integrasiToken
+#     }
+#     response = requests.get(url, headers=headers)
+#     if response.status_code == 200:
+#         result = response.json()
+#         idUser = next((item[0] for item in result if item[7] == current_user.username), None)
+        
+#         with connection.cursor() as cursor:
+#             # Check if the sneaker ID exists
+#             cursor.execute("SELECT * FROM users WHERE username=?", (current_user.username,))
+#             user = cursor.fetchone()
+            
+#             cursor.execute("SELECT TOP 1 * FROM consultations WHERE user_id = ? ORDER BY id DESC", (user.id,))
+#             sneakersID = cursor.fetchone().sneaker_id
+            
+#             if(not sneakersID):
+#                 return{'Anda belum melakukan konsultasi milik Shoe Wizards Co! atau tidak ada konsultasi yang cocok, silahkan lakukan konsultasi terlebih dahulu pada POST/doconsult/me'}        
+
+#             url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
+#             headers = {
+#                 'accept': 'application/json'
+#             }
+#             params = {
+#                 'userid': idUser,
+#                 'shoeid': sneakersID
+#             }
+
+#             response = requests.get(url, headers=headers, params=params)
+
+#             if response.status_code == 200:
+#                 result = response.json()
+#                 cursor.execute("UPDATE consultations SET shoewizards=? WHERE user_id=? AND sneaker_id=?",
+#                            (result, user.id, sneakersID))
+#                 connection.commit()
+#                 return result
+#             else:
+#                 return{'Error:', response.status_code, response.text}
+      
+#     else:
+#         return{'Error:', response.status_code, response.text}
+    
