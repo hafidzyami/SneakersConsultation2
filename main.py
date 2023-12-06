@@ -9,13 +9,14 @@ from typing import List
 import requests
 import pyodbc
 from datetime import datetime
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # Azure SQL
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
 username = 'azureuser'
-password = '......'
+password = '...'
 driver = '{ODBC Driver 18 for SQL Server}'
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
@@ -73,6 +74,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -120,7 +129,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 def getIntegrasiToken(username, password):
-    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/authentications/login'
+    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/authentications/login?flag=false'
     headers = {
         'accept': 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded'
@@ -141,7 +150,7 @@ def getIntegrasiToken(username, password):
         access_token = result.get('access_token')
         return access_token
     else:
-        return{'Error:', response.status_code, response.text}
+        raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
@@ -179,44 +188,44 @@ async def get_current_basic_user(
 
 @app.post("/register", tags=['Register'])
 async def register_user(data : RegisterData):
-    
     try:
-        with connection.cursor() as cursor:
+        with connection.cursor() as cursor:                
             cursor.execute("SELECT 1 FROM users_login WHERE username = ?", data.username)
-            if cursor.fetchone():
+            result = cursor.fetchone()
+            if result:
                 raise HTTPException(status_code=400, detail="Username already taken")
 
             # Hash the password before saving it to the database
             hashed_password = pwd_context.hash(data.password)
             cursor.execute("SELECT id FROM users_login ORDER BY id DESC")
             count = int(cursor.fetchone()[0])     
-            
             # Register to other microservice
             url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
             headers = {
-                'accept': 'application/json'
+                    'accept': 'application/json'
             }
             params = {
-                'firstname': data.username,
-                'lastname': data.username,
-                'phonenumber': '0888888',
-                'address': 'Jl Cikutra No 20',
-                'email': data.username + "@gmail.com",
-                'password': data.password,
-                'username': data.username,
-                'role': 'Admin'
+                    'firstname': data.username,
+                    'lastname': data.username,
+                    'phonenumber': '0888888',
+                    'address': 'Jl Cikutra No 20',
+                    'email': data.username + "@gmail.com",
+                    'password': data.password,
+                    'username': data.username,
+                    'role': 'Admin',
+                    'flag' : False
             }
 
             response = requests.post(url, headers=headers, params=params)
-            
-            # Jika berhasil register
+                
+                # Jika berhasil register
             if response.status_code == 200:
                 # Insert the user data into the users_login table
                 cursor.execute("""
-                    INSERT INTO users_login (id, username, hashed_password, is_admin, integrasiToken)
-                    VALUES (?, ?, ?, 0, ?)
-                """, count+1, data.username, hashed_password, getIntegrasiToken(data.username, data.password))
-                
+                        INSERT INTO users_login (id, username, hashed_password, is_admin, integrasiToken)
+                        VALUES (?, ?, ?, 0, ?)
+                    """, count+1, data.username, hashed_password, getIntegrasiToken(data.username, data.password))
+                    
                 cursor.execute("SELECT id FROM users ORDER BY id DESC")
                 result = cursor.fetchone()
                 if(result is not None):
@@ -225,13 +234,13 @@ async def register_user(data : RegisterData):
                     countUsers = 0
 
                 cursor.execute("""
-                    INSERT INTO users (id, age, footsize, category, budget, username)
-                    VALUES (?, null, null, null, null, ?)
-                """, countUsers+1, data.username)       
+                        INSERT INTO users (id, age, footsize, category, budget, username)
+                        VALUES (?, null, null, null, null, ?)
+                    """, countUsers+1, data.username)       
                 connection.commit()
                 return {"message": "User registered successfully"}
             else:
-                return{'Error:', response.status_code, response.text}
+                raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
 
     finally:
         # connection.close()
@@ -438,7 +447,7 @@ async def do_consult(
                     "sneaker_id": sneakers_id,
                     "sneaker_name": sneakers_name,
                     "consult_notes": notes,
-                    "timestampz" : datetime.timestamp(datetime.now())
+                    "timestampz" : datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
                 
             cursor.execute("SELECT id FROM consultations ORDER BY id DESC")
@@ -675,7 +684,7 @@ async def read_all_products():
         result = response.json()
         return result
     else:
-        return{'Error:', response.status_code, response.text}
+        raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
 
 
 @app.post('/doexpertconsult/me', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
@@ -683,7 +692,8 @@ async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_curre
     with connection.cursor() as cursor:
             # Check if the sneaker ID exists
             cursor.execute("SELECT integrasiToken FROM users_login WHERE username=?", (current_user.username,))
-            integrasiToken = cursor.fetchone()[0]
+            integrasiToken = cursor.fetchone()[0]            
+            
     
     url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
     headers = {
@@ -738,11 +748,11 @@ async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_curre
                     connection.commit()
                     return result1 + " " + result
                 else:
-                    return{'Error:', response.status_code, response.text}
+                    raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
             else:
-                return{'Error:', response.status_code, response.text}        
+                raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")      
     else:
-        return{'Error:', response.status_code, response.text}
+        raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
     
 # @app.get('/expertconsult/me', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
 # async def get_shoewizards_consult(current_user: Annotated[UserLogin, Depends(get_current_basic_user)]):
