@@ -10,13 +10,14 @@ import requests
 import pyodbc
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+import random
 
 
 # Azure SQL
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
 username = 'azureuser'
-password = '...'
+password = '......'
 driver = '{ODBC Driver 18 for SQL Server}'
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
@@ -145,7 +146,7 @@ def getIntegrasiToken(username, password):
 
     response = requests.post(url, headers=headers, data=data)
 
-    if response.status_code == 200:
+    if response.status_code >= 200 and response.status_code <= 299:
         result = response.json()
         access_token = result.get('access_token')
         return access_token
@@ -219,7 +220,7 @@ async def register_user(data : RegisterData):
             response = requests.post(url, headers=headers, params=params)
                 
                 # Jika berhasil register
-            if response.status_code == 200:
+            if response.status_code >= 200 and response.status_code <= 299:
                 # Insert the user data into the users_login table
                 cursor.execute("""
                         INSERT INTO users_login (id, username, hashed_password, is_admin, integrasiToken)
@@ -680,7 +681,7 @@ async def read_all_products():
 
     response = requests.get(url, headers=headers)
 
-    if response.status_code == 200:
+    if response.status_code >= 200 and response.status_code <= 299:
         result = response.json()
         return result
     else:
@@ -701,7 +702,7 @@ async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_curre
         'Authorization': 'Bearer ' + integrasiToken
     }
     response = requests.get(url, headers=headers)
-    if response.status_code == 200:
+    if response.status_code >= 200 and response.status_code <= 299:
         result = response.json()
         idUser = next((item[0] for item in result if item[7] == current_user.username), None)
         
@@ -715,93 +716,74 @@ async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_curre
             if(result is not None and result.sneaker_id is not None):
                 sneakersID = result.sneaker_id
             else:
-                return{'Hasil konsultasi terakhir menyatakan tidak ada sneakers yang cocok, sehingga tidak ada produk Shoe Wizards yang cocok juga! Silahkan lakukan konsultasi terlebih dahulu pada POST/doconsult/me'}     
-            url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
+                return{'Hasil konsultasi terakhir menyatakan tidak ada sneakers yang cocok, sehingga tidak ada produk Shoe Wizards yang cocok juga! Silahkan lakukan konsultasi terlebih dahulu pada POST/doconsult/me'}   
+            
+            url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/shoes/shoes'
             headers = {
                 'accept': 'application/json',
                 'Authorization': 'Bearer ' + integrasiToken
             }
+            
+            shoetype_options = ['sneakers', 'loafers', 'flip-flop']
+            selected_shoetype = random.choice(shoetype_options)
+
             params = {
-                'userid': idUser,
-                'shoeid': sneakersID
+                'shoetype': selected_shoetype,
+                'shoesize': '42',
+                'shoecolor': 'black and yellow',
+                'shoebrand': 'nike',
+                'initialcondition': 'good'
             }
 
             response = requests.post(url, headers=headers, params=params)
+            
+            if(response.status_code >= 200 and response.status_code <= 299):
+                start_index = response.json().find("ID ") + len("ID ")
+                substring = response.json()[start_index:]
 
-            if response.status_code == 200:
-                result1 = response.json()
+                # Find the first space after the substring to extract the number
+                end_index = substring.find(" ")
+                result = substring[:end_index]
+                
+                print(result)
+                
                 url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
                 headers = {
-                    'accept': 'application/json'
+                    'accept': 'application/json',
+                    'Authorization': 'Bearer ' + integrasiToken
                 }
                 params = {
                     'userid': idUser,
-                    'shoeid': sneakersID
+                    'shoeid': result
                 }
 
-                response = requests.get(url, headers=headers, params=params)
+                response = requests.post(url, headers=headers, params=params)
 
-                if response.status_code == 200:
-                    result = response.json()
-                    cursor.execute("UPDATE consultations SET shoewizards=? WHERE user_id=? AND sneaker_id=?",
-                            (result, user.id, sneakersID))
-                    connection.commit()
-                    return result1 + " " + result
+                if response.status_code >= 200 and response.status_code <= 299:
+                    result1 = response.json()
+                    url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
+                    headers = {
+                        'accept': 'application/json',
+                        'Authorization': 'Bearer ' + integrasiToken
+                    }
+                    params = {
+                        'userid': idUser,
+                        'shoeid': result
+                    }
+
+                    response = requests.get(url, headers=headers, params=params)
+
+                    if response.status_code >= 200 and response.status_code <= 299:
+                        result3 = response.json()
+                        cursor.execute("UPDATE consultations SET shoewizards=? WHERE user_id=? AND sneaker_id=?",
+                                (result3, user.id, sneakersID))
+                        connection.commit()
+                        return result3
+                    else:
+                        raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
                 else:
-                    raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
-            else:
-                raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")      
+                    raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")      
     else:
         raise HTTPException(status_code=response.status_code, detail=f"Error Integrasi Layanan : {response.text}")
     
-# @app.get('/expertconsult/me', tags=['Integrasi Shoe Wizards Co. (Auth Customers)'])
-# async def get_shoewizards_consult(current_user: Annotated[UserLogin, Depends(get_current_basic_user)]):
-#     with connection.cursor() as cursor:
-#             # Check if the sneaker ID exists
-#             cursor.execute("SELECT integrasiToken FROM users_login WHERE username=?", (current_user.username,))
-#             integrasiToken = cursor.fetchone()[0]
-            
-#     url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/users/users'
-#     headers = {
-#         'accept': 'application/json',
-#         'Authorization': 'Bearer ' + integrasiToken
-#     }
-#     response = requests.get(url, headers=headers)
-#     if response.status_code == 200:
-#         result = response.json()
-#         idUser = next((item[0] for item in result if item[7] == current_user.username), None)
-        
-#         with connection.cursor() as cursor:
-#             # Check if the sneaker ID exists
-#             cursor.execute("SELECT * FROM users WHERE username=?", (current_user.username,))
-#             user = cursor.fetchone()
-            
-#             cursor.execute("SELECT TOP 1 * FROM consultations WHERE user_id = ? ORDER BY id DESC", (user.id,))
-#             sneakersID = cursor.fetchone().sneaker_id
-            
-#             if(not sneakersID):
-#                 return{'Anda belum melakukan konsultasi milik Shoe Wizards Co! atau tidak ada konsultasi yang cocok, silahkan lakukan konsultasi terlebih dahulu pada POST/doconsult/me'}        
-
-#             url = 'http://shoewizards.cbh8eahqfjh9hnep.eastus.azurecontainer.io/consultations/consultations'
-#             headers = {
-#                 'accept': 'application/json'
-#             }
-#             params = {
-#                 'userid': idUser,
-#                 'shoeid': sneakersID
-#             }
-
-#             response = requests.get(url, headers=headers, params=params)
-
-#             if response.status_code == 200:
-#                 result = response.json()
-#                 cursor.execute("UPDATE consultations SET shoewizards=? WHERE user_id=? AND sneaker_id=?",
-#                            (result, user.id, sneakersID))
-#                 connection.commit()
-#                 return result
-#             else:
-#                 return{'Error:', response.status_code, response.text}
-      
-#     else:
-#         return{'Error:', response.status_code, response.text}
     
