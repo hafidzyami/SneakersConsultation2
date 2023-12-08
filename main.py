@@ -17,7 +17,7 @@ import random
 server = 'mysqlserver18221074.database.windows.net,1433'
 database = 'sneakersdb'
 username = 'azureuser'
-password = '......'
+password = '.....'
 driver = '{ODBC Driver 18 for SQL Server}'
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;Login Timeout=60;'
 
@@ -724,7 +724,7 @@ async def do_expert_consult(current_user: Annotated[UserLogin, Depends(get_curre
                 'Authorization': 'Bearer ' + integrasiToken
             }
             
-            shoetype_options = ['sneakers', 'loafers', 'flip-flop']
+            shoetype_options = ['Sneakers', 'Loafers', 'Flip-flop']
             selected_shoetype = random.choice(shoetype_options)
 
             params = {
