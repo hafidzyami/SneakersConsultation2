@@ -1,12 +1,17 @@
-# Microservice Deployment - Sneakers Consultation with OAuth2.0
+# Microservice Deployment - Sneakers Expert Consultation
 
 Tugas Besar II3160 - Teknologi Sistem Terintegrasi
 
-Sneakers Consultation (https://github.com/hafidzyami/SneakersConsultation):
-http://sneakersbandung.e0ckbxd0cud3hadd.southeastasia.azurecontainer.io/docs
-
-Sneakers Consultation with OAuth2.0 and Azure SQL Database Server:
+API:
 http://sneakersbandung.hzgecqhehxbtanhv.southeastasia.azurecontainer.io/docs
+
+API Documentation:  
+https://docs.google.com/document/d/1TTx1hG4iU3vlznPYn2uZIakj0IHSVdPwV_SvKl_C95c/edit?usp=sharing
+
+Main Report Link:
+https://docs.google.com/document/d/16V9IV-i7Wj2qDoAJBuZW76HF2ZgeBl4TBWbr5osXCIQ/edit?usp=sharing
+
+# Deployment Steps:
 
 ## Install ODBC
 Install ODBC to set connection string from Azure SQL Database Server [ODBC](https://go.microsoft.com/fwlink/?linkid=833576).
