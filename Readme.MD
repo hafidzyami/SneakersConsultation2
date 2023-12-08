@@ -2,16 +2,16 @@
 
 Tugas Besar II3160 - Teknologi Sistem Terintegrasi
 
-Login and Register UI:
+Login and Register UI: <br/>
 https://sneakersbandung.vercel.app/
 
-API:
+API: <br/>
 http://sneakersbandung.hzgecqhehxbtanhv.southeastasia.azurecontainer.io/docs
 
 API Documentation:  
 https://docs.google.com/document/d/1TTx1hG4iU3vlznPYn2uZIakj0IHSVdPwV_SvKl_C95c/edit?usp=sharing
 
-Main Report Link:
+Main Report Link: <br/>
 https://docs.google.com/document/d/16V9IV-i7Wj2qDoAJBuZW76HF2ZgeBl4TBWbr5osXCIQ/edit?usp=sharing
 
 # Deployment Steps:
